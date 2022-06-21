@@ -1,0 +1,2 @@
+Flask==2.0.3
+Flask-Compress==1.12

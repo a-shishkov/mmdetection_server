@@ -1,18 +1,20 @@
-from itertools import groupby
-import os
-from flask import Flask, request
+from ast import Num
 import base64
-from mmdet.apis import (
-    inference_detector,
-    init_detector,
-)
-import numpy as np
-import cv2
-import json
+from itertools import groupby
+from flask import Flask, request
 from flask_compress import Compress
+from PIL import Image
+import tensorflow as tf
+import tensorflow_hub as hub
+import numpy as np
+import json
+from object_detection.utils import ops as utils_ops
 
 app = Flask(__name__)
 Compress(app)
+
+model_handle = "https://tfhub.dev/tensorflow/mask_rcnn/inception_resnet_v2_1024x1024/1"
+hub_model = hub.load(model_handle)
 
 
 def run_length_encode(data: str) -> str:
@@ -28,89 +30,62 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def save_anno(image):
-    if "annotations" not in request.json:
-        return
-
-    annotations = request.json["annotations"]
-
-    client_dir = os.path.join("results", request.remote_addr)
-    images_dir = os.path.join(client_dir, "images")
-
-    if not os.path.exists(client_dir):
-        os.makedirs(client_dir)
-
-    if not os.path.exists(images_dir):
-        os.makedirs(images_dir)
-
-    image_id = len(os.listdir(images_dir))
-    cv2.imwrite(os.path.join(images_dir, f"{image_id}.jpg"), image)
-
-    anno_path = os.path.join(client_dir, "annotations.json")
-    if os.path.exists(anno_path):
-        with open(anno_path, "r") as anno_file:
-            anno_data = json.load(anno_file)
-    else:
-        anno_data = {"annotations": [], "images": []}
-
-    last_anno_id = len(anno_data["annotations"])
-    for anno in annotations:
-        anno["image_id"] = image_id
-        anno["id"] = last_anno_id
-        last_anno_id += 1
-        anno_data["annotations"].append(anno)
-    anno_data["images"].append({"file_name": f"images/{image_id}.jpg", "id": image_id})
-    with open(anno_path, "w") as anno_file:
-        json.dump(anno_data, anno_file, indent=4, sort_keys=True)
-
-
 @app.route("/")
 def hello_world():
-    return "hello"
+    return "qweqwe"
 
 
-@app.route("/predict", methods=["POST"])
+@app.route("/predict")
 def predict():
-    encoded_image = request.json["image"]
-    image_bytes = base64.b64decode(encoded_image)
+    img = Image.open("image2.jpg")
 
-    nparr = np.fromstring(image_bytes, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    (im_width, im_height) = img.size
+    img = np.array(img.getdata()).reshape((1, im_height, im_width, 3)).astype(np.uint8)
 
-    save_anno(image)
+    results = hub_model(img)
+    result = {key: value.numpy() for key, value in results.items()}
 
-    # build the model from a config file and a checkpoint file
-    model = init_detector(
-        "configs/car/car_parts_config.py",
-        "checkpoints/car/mask_rcnn_r50_caffe_fpn_mstrain-poly_3x_cars-parts.pth",
-        device="cuda:0",
-    )
+    keys = ("detection_classes", "detection_scores")
+    output = {key: result[key][0] for key in keys}
 
-    # test a single image
-    result = inference_detector(model, image)
+    boxes = result["detection_boxes"][0]
+    new_boxes = []
+    for box in boxes:
+        x1, y1, x2, y2 = box
+        new_boxes.append(
+            [
+                int(x1 * im_width),
+                int(y1 * im_height),
+                int(x2 * im_width),
+                int(y2 * im_height),
+            ]
+        )
+    output["detection_boxes"] = new_boxes
 
-    # show the results
-    # show_result_pyplot(model, image, result)
+    if "detection_masks" in result:
+        # we need to convert np.arrays to tensors
+        detection_masks = tf.convert_to_tensor(result["detection_masks"][0])
+        detection_boxes = tf.convert_to_tensor(result["detection_boxes"][0])
 
-    h, w = image.shape[:2]
-    boxes, masks = result
+        # Reframe the bbox mask to the image size.
+        detection_masks_reframed = utils_ops.reframe_box_masks_to_image_masks(
+            detection_masks, detection_boxes, img.shape[1], img.shape[2]
+        )
+        detection_masks_reframed = tf.cast(detection_masks_reframed > 0.5, tf.uint8)
 
-    class_masks = []
-    for instances in masks:
-        encoded_masks = []
-        for instance in instances:
-            encoded_masks.append(instance.flatten())
-            # byte_mask = np.packbits(instance.flatten()).tobytes()
-            # encoded_mask = base64.b64encode(byte_mask).decode("utf-8")
-            # encoded_masks.append(encoded_mask)
-        class_masks.append(encoded_masks)
+        # Binary masks to RLE
+        masks = detection_masks_reframed.numpy()
+        new_masks = []
+        for mask in masks:
+            byte_mask = np.packbits(mask.flatten()).tobytes()
+            encoded_mask = base64.b64encode(byte_mask).decode("utf-8")
+            encoded_mask = run_length_encode(encoded_mask)
+            new_masks.append(encoded_mask)
 
-    output = {
-        "width": w,
-        "height": h,
-        "damage": {"boxes": boxes, "masks": class_masks},
-    }
+        output["detection_masks_reframed"] = new_masks
 
-    result_json = json.dumps(output, cls=NumpyEncoder)
+    return json.dumps(output, cls=NumpyEncoder)
 
-    return result_json
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

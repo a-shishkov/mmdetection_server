@@ -1,47 +1,48 @@
-# print(torch.__version__)
-# print(torch.version.cuda)
-# torch.backends.cudnn.version()
-ARG PYTORCH="1.11.0"
-ARG CUDA="11.3"
-ARG CUDNN="8"
+FROM tensorflow/tensorflow:2.8.2-gpu
 
-# FROM pytorch/pytorch:${PYTORCH}-cuda${CUDA}-cudnn${CUDNN}-devel
-FROM pytorch/pytorch:1.6.0-cuda10.1-cudnn7-devel
-
-ENV TORCH_CUDA_ARCH_LIST="6.0 6.1 7.0+PTX"
-ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
-ENV CMAKE_PREFIX_PATH="$(dirname $(which conda))/../"
+ARG DEBIAN_FRONTEND=noninteractive
 
 # To fix GPG key error when running apt-get update
 RUN apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/3bf863cc.pub
 RUN apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1804/x86_64/7fa2af80.pub
 
-RUN apt-get update \
-    && apt-get install -y ffmpeg libsm6 libxext6 git ninja-build libglib2.0-0 libsm6 libxrender-dev libxext6 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Install apt dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    gpg-agent \
+    python3-cairocffi \
+    protobuf-compiler \
+    python3-pil \
+    python3-lxml \
+    python3-tk \
+    wget
 
-# Install MMCV
-RUN pip install --no-cache-dir --upgrade pip wheel setuptools
-RUN pip install --no-cache-dir mmcv-full==1.3.17 -f https://download.openmmlab.com/mmcv/dist/cu101/torch1.6.0/index.html
+# Add new user to avoid running as root
+RUN useradd -ms /bin/bash tensorflow
+USER tensorflow
+WORKDIR /home/tensorflow
 
-# Install MMDetection
-RUN conda clean --all
-RUN git clone https://github.com/open-mmlab/mmdetection.git /mmdetection
-WORKDIR /mmdetection
-ENV FORCE_CUDA="1"
-RUN pip install --no-cache-dir -r requirements/build.txt
-RUN pip install --no-cache-dir -e .
+# Copy this version of of the model garden into the image
+COPY --chown=tensorflow protos/ /home/tensorflow/object_detection/protos
 
-RUN pip install flask
-RUN pip install Flask-Compress
+# Compile protobuf configs
+RUN (protoc object_detection/protos/*.proto --python_out=.)
+
+COPY packages/tf2/setup.py .
+ENV PATH="/home/tensorflow/.local/bin:${PATH}"
+
+RUN python -m pip install -U pip
+RUN python -m pip install .
+
+ENV TF_CPP_MIN_LOG_LEVEL 3
 
 EXPOSE 5000
 
-COPY src/ .
-COPY configs/car configs/car
-COPY checkpoints/car checkpoints/car
+WORKDIR /app
+ENV TFHUB_CACHE_DIR=/app/.cache/tfhub_modules
 
-ENV FLASK_APP=app
-CMD ["flask", "run", "--host=0.0.0.0"]
-# CMD ["bash"]
+COPY src/ /app/
+
+RUN pip install -r requirements.txt
+
+CMD python app.py
