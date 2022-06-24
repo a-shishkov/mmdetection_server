@@ -35,15 +35,18 @@ def hello_world():
 
 @app.route("/detect", methods=["POST"])
 def detect():
+    # Decode image from base64 and get raw pixels sequence
     encoded_image = request.json["image"]
     image_bytes = base64.b64decode(encoded_image)
 
     image_size = (request.json["width"], request.json["height"])
     image_h, image_w = image_size
 
+    # Convert to usual image format
     image = np.array(image_bytes)
     image = image.reshape((1, image_h, image_w, 3)).astype(np.uint8)
 
+    # Inference
     results = hub_model(image)
     result = {key: value.numpy() for key, value in results.items()}
 
@@ -55,21 +58,25 @@ def detect():
     )
     output = {}
 
+    # Get list of classes
     output[keys[0]] = result[keys[0]][0].astype(np.int32)
+    # List of scores
     output[keys[1]] = result[keys[1]][0]
 
     output["width"] = image_w
     output["height"] = image_h
 
+    # Renormalize boxes
     boxes = result[keys[2]][0]
-    new_boxes = []
+    renorm_boxes = []
     for box in boxes:
-        y1, x1, y2, x2 = box
-        new_boxes.append(
-            [(y1 * image_h), (x1 * image_w), (y2 * image_h), (x2 * image_w)]
+        ymin, xmin, ymax, xmax = box
+        renorm_boxes.append(
+            [(ymin * image_h), (xmin * image_w), (ymax * image_h), (xmax * image_w)]
         )
-    output[keys[2]] = new_boxes
+    output[keys[2]] = renorm_boxes
 
+    # If inference model is Mask RCNN then build binary mask
     if keys[3] in result:
         # we need to convert np.arrays to tensors
         detection_masks = tf.convert_to_tensor(result[keys[3]][0])
