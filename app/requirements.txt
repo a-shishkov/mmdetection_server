@@ -1,4 +1,5 @@
 Flask==2.0.3
 Flask-Compress==1.12
-gunicorn
-debugpy
+gunicorn==20.1.0
+debugpy==1.6.0
+imageio==2.19.3
