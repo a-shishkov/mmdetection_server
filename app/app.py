@@ -7,6 +7,8 @@ import tensorflow_hub as hub
 import numpy as np
 import json
 from object_detection.utils import ops as utils_ops
+import os
+import imageio
 
 app = Flask(__name__)
 Compress(app)
@@ -27,6 +29,40 @@ class NumpyEncoder(json.JSONEncoder):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
 
+def save_anno(image):
+    if "annotations" not in request.json:
+        return
+
+    annotations = request.json["annotations"]
+
+    client_dir = os.path.join("results", request.remote_addr)
+    images_dir = os.path.join(client_dir, "images")
+
+    if not os.path.exists(client_dir):
+        os.makedirs(client_dir)
+
+    if not os.path.exists(images_dir):
+        os.makedirs(images_dir)
+
+    image_id = len(os.listdir(images_dir))
+    imageio.imwrite(os.path.join(images_dir, f"{image_id}.jpg"), image)
+
+    anno_path = os.path.join(client_dir, "annotations.json")
+    if os.path.exists(anno_path):
+        with open(anno_path, "r") as anno_file:
+            anno_data = json.load(anno_file)
+    else:
+        anno_data = {"annotations": [], "images": []}
+
+    last_anno_id = len(anno_data["annotations"])
+    for anno in annotations:
+        anno["image_id"] = image_id
+        anno["id"] = last_anno_id
+        last_anno_id += 1
+        anno_data["annotations"].append(anno)
+    anno_data["images"].append({"file_name": f"images/{image_id}.jpg", "id": image_id})
+    with open(anno_path, "w") as anno_file:
+        json.dump(anno_data, anno_file, indent=4, sort_keys=True)
 
 @app.route("/")
 def hello_world():
@@ -43,8 +79,9 @@ def detect():
     image_h, image_w = image_size
 
     # Convert to usual image format
-    image = np.array(image_bytes)
-    image = image.reshape((1, image_h, image_w, 3)).astype(np.uint8)
+    image = np.frombuffer(image_bytes, dtype=np.uint8).reshape((1, image_h, image_w, 3))
+
+    save_anno(image)
 
     # Inference
     results = hub_model(image)
@@ -59,15 +96,15 @@ def detect():
     output = {}
 
     # Get list of classes
-    output[keys[0]] = result[keys[0]][0].astype(np.int32)
+    output[keys[0]] = result["detection_" + keys[0]][0].astype(np.int32)
     # List of scores
-    output[keys[1]] = result[keys[1]][0]
+    output[keys[1]] = result["detection_" + keys[1]][0]
 
     output["width"] = image_w
     output["height"] = image_h
 
     # Renormalize boxes
-    boxes = result[keys[2]][0]
+    boxes = result["detection_" + keys[2]][0]
     renorm_boxes = []
     for box in boxes:
         ymin, xmin, ymax, xmax = box
@@ -77,10 +114,10 @@ def detect():
     output[keys[2]] = renorm_boxes
 
     # If inference model is Mask RCNN then build binary mask
-    if keys[3] in result:
+    if "detection_" + keys[3] in result:
         # we need to convert np.arrays to tensors
-        detection_masks = tf.convert_to_tensor(result[keys[3]][0])
-        detection_boxes = tf.convert_to_tensor(result[keys[2]][0])
+        detection_masks = tf.convert_to_tensor(result["detection_" + keys[3]][0])
+        detection_boxes = tf.convert_to_tensor(result["detection_" + keys[2]][0])
 
         # Reframe the bbox mask to the image size.
         detection_masks_reframed = utils_ops.reframe_box_masks_to_image_masks(
