@@ -38,11 +38,12 @@ ENV TF_CPP_MIN_LOG_LEVEL 3
 
 EXPOSE 5000
 
-WORKDIR /app
 ENV TFHUB_CACHE_DIR=/app/.cache/tfhub_modules
+ENV FLASK_ENV="docker"
+ENV FLASK_APP=/app/app.py
 
-COPY src/ /app/
+COPY app/ /app
+WORKDIR /app
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip install -r requirements.txt
-
-CMD python app.py
+CMD ["gunicorn", "--reload", "--bind", "0.0.0.0:5000", "app:app"]
