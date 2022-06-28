@@ -13,7 +13,8 @@ import imageio
 app = Flask(__name__)
 Compress(app)
 
-model_handle = "https://tfhub.dev/tensorflow/mask_rcnn/inception_resnet_v2_1024x1024/1"
+# model_handle = "https://tfhub.dev/tensorflow/mask_rcnn/inception_resnet_v2_1024x1024/1"
+model_handle = "saved_model"
 hub_model = hub.load(model_handle)
 
 
