@@ -45,7 +45,7 @@ def save_anno(image):
         os.makedirs(images_dir)
 
     image_id = len(os.listdir(images_dir))
-    imageio.imwrite(os.path.join(images_dir, f"{image_id}.jpg"), image)
+    imageio.imwrite(os.path.join(images_dir, f"{image_id}.jpg"), image[0])
 
     anno_path = os.path.join(client_dir, "annotations.json")
     if os.path.exists(anno_path):
@@ -75,7 +75,7 @@ def detect():
     encoded_image = request.json["image"]
     image_bytes = base64.b64decode(encoded_image)
 
-    image_size = (request.json["width"], request.json["height"])
+    image_size = (request.json["height"], request.json["width"])
     image_h, image_w = image_size
 
     # Convert to usual image format
