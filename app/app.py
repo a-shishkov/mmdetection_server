@@ -9,6 +9,8 @@ import json
 from object_detection.utils import ops as utils_ops
 import os
 import imageio
+import mysql.connector
+import uuid
 
 app = Flask(__name__)
 Compress(app)
@@ -35,7 +37,7 @@ def save_anno(image):
 
     annotations = request.json["annotations"]
 
-    client_dir = os.path.join("results", request.remote_addr)
+    client_dir = os.path.join("annotations", request.remote_addr)
     images_dir = os.path.join(client_dir, "images")
 
     if not os.path.exists(client_dir):
@@ -44,25 +46,29 @@ def save_anno(image):
     if not os.path.exists(images_dir):
         os.makedirs(images_dir)
 
-    image_id = len(os.listdir(images_dir))
-    imageio.imwrite(os.path.join(images_dir, f"{image_id}.jpg"), image[0])
+    file_path = os.path.join(images_dir, f"{uuid.uuid4()}.jpg")
+    imageio.imwrite(file_path, image[0])
+    cnx = mysql.connector.connect(
+        user="root", password="root", host="db", port="3306", database="annotations",
+    )
+    cursor = cnx.cursor()
 
-    anno_path = os.path.join(client_dir, "annotations.json")
-    if os.path.exists(anno_path):
-        with open(anno_path, "r") as anno_file:
-            anno_data = json.load(anno_file)
-    else:
-        anno_data = {"annotations": [], "images": []}
+    add_image = "INSERT INTO images (file_name) VALUES (%s)"
+    add_annotation = "INSERT INTO annotations (category_id, image_id) VALUES (%s, %s)"
+    add_segment = "INSERT INTO segments (segment, annotation_id) VALUES (%s, %s)"
 
-    last_anno_id = len(anno_data["annotations"])
+    cursor.execute(add_image, (file_path,))
     for anno in annotations:
-        anno["image_id"] = image_id
-        anno["id"] = last_anno_id
-        last_anno_id += 1
-        anno_data["annotations"].append(anno)
-    anno_data["images"].append({"file_name": f"images/{image_id}.jpg", "id": image_id})
-    with open(anno_path, "w") as anno_file:
-        json.dump(anno_data, anno_file, indent=4, sort_keys=True)
+        lastid = cursor.lastrowid
+        cursor.execute(add_annotation, (anno["category_id"], lastid))
+        lastid = cursor.lastrowid
+        for segm in anno["segmentation"]:
+            cursor.execute(add_segment, (segm, lastid))
+
+    cnx.commit()
+    cursor.close()
+    cnx.close()
+
 
 @app.route("/")
 def hello_world():

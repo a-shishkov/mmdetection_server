@@ -26,3 +26,13 @@ services:
         "-p",
         "5000"
       ]
+  db:
+    image: mysql:5.7.38
+    restart: always
+    ports:
+      - 32000:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - ./db/data:/var/lib/mysql
+      - ./db/conf:/docker-entrypoint-initdb.d/:ro

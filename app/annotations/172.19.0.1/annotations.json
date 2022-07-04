@@ -1,0 +1,61 @@
+{
+    "annotations": [
+        {
+            "category_id": 1,
+            "id": 0,
+            "image_id": 0,
+            "segmentation": [
+                432,
+                509,
+                432,
+                653,
+                663,
+                677,
+                710,
+                536
+            ]
+        },
+        {
+            "category_id": 1,
+            "id": 1,
+            "image_id": 1,
+            "segmentation": [
+                595,
+                629,
+                883,
+                680,
+                734,
+                476
+            ]
+        },
+        {
+            "category_id": 1,
+            "id": 2,
+            "image_id": 2,
+            "segmentation": [
+                353,
+                574,
+                590,
+                759,
+                799,
+                690,
+                696,
+                452
+            ]
+        }
+    ],
+    "images": [
+        {
+            "file_name": "images/0.jpg",
+            "id": 0
+        },
+        {
+            "file_name": "images/1.jpg",
+            "id": 1
+        },
+        {
+            "file_name": "images/2.jpg",
+            "id": 2
+        }
+    ]
+}
